@@ -192,6 +192,8 @@ Decision rules for when to create a log item:
   - elevated latency or timeout bursts
   - dependency or database instability
   - authentication/authorization anomalies
+  - IP access anomalies
+  - Other security related anomalies
   - unusual or novel error messages
   - cascading cross-service issues
   - materially important one-off failures
