@@ -11,7 +11,7 @@ import (
 func InitLogger() {
 	zerolog.TimeFieldFormat = time.RFC3339
 
-	if os.Getenv("GO_ENV") == "prod" {
+	if os.Getenv("GO_ENV") == "production" {
 		// Log to docker log collector (stdout)
 		log.Logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
 	} else {
