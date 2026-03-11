@@ -1,0 +1,250 @@
+Return a single JSON object in the following format:
+
+{
+  "logs": [
+    {
+      "type": "overview" | "<service_name>",
+      "level": "<severity>",
+      "time": "<UTC RFC3339 timestamp>",
+      "message": "<concise anomaly description>",
+      "original_log": "<the original log line that triggered the anomaly, if applicable>",
+      "llm_investigation": "<additional analysis about why this is anomalous, likely cause, scope, or pattern>",
+      "llm_suggested_action": "<recommended next step, mitigation, or follow-up action>"
+    },
+    ...
+  ],
+  "context_for_next_llm_periodic_check": "<compact handoff summary for the next periodic run>"
+}
+
+Output contract:
+- Return exactly one JSON object.
+- Do not return markdown.
+- Do not return commentary before or after the JSON.
+- The "logs" field must always exist and must always be an array.
+- The array may be empty if no meaningful anomalies are found.
+- The "context_for_next_llm_periodic_check" field must always exist and must always be a string.
+- All output must be valid JSON.
+
+Field definitions and rules:
+
+1. "logs"
+Description:
+- A list of anomalous, suspicious, or operationally meaningful findings discovered in the Loki logs.
+
+Rules:
+- Include only meaningful findings, not routine noise.
+- Prefer fewer, stronger, deduplicated findings over many repetitive entries.
+- Merge repeated or closely related log lines into a single finding when they describe the same incident or pattern.
+- Order items by operational importance, with the most critical or broadly impactful findings first.
+- The list may be empty when no anomalies are detected.
+
+2. "type"
+Description:
+- Identifies where the anomaly belongs.
+
+Rules:
+- Use "overview" when the finding is cross-service, system-wide, or summarizes a broader pattern.
+- Otherwise use the exact Loki service name that the anomaly stemmed from.
+- Do not invent friendly aliases or rename services.
+- Use one service name per item. If multiple services are involved, prefer "overview" unless one service is clearly the primary origin.
+
+Examples:
+- "overview"
+- "payments-api"
+- "auth-service"
+
+3. "level"
+Description:
+- The severity level of the anomaly.
+
+Rules:
+- Prefer the original log severity when it is clearly present.
+- If summarizing multiple logs, use the highest relevant severity among them.
+- If severity is not explicit, infer the best-fit operational severity consistently.
+- Keep values simple and normalized where possible.
+
+Recommended values:
+- "critical"
+- "error"
+- "warn"
+- "info"
+
+Severity guidance:
+- "critical": service outage, crash loop, data loss risk, widespread user impact, severe cascading failure
+- "error": failed requests, repeated exceptions, dependency failures, important but not total outage
+- "warn": degraded behavior, rising latency, retry storms, suspicious but not yet failing hard
+- "info": noteworthy anomaly with low immediate impact
+
+4. "time"
+Description:
+- The timestamp most representative of when the anomaly occurred.
+
+Rules:
+- Must be a UTC RFC3339 timestamp.
+- Format example: "2026-03-11T11:53:33Z"
+- For a single triggering event, use that event’s timestamp.
+- For clustered events, use the earliest clearly significant timestamp or the start of the anomaly spike.
+- Do not use relative times.
+- Do not include local timezone offsets if UTC can be expressed as "Z".
+
+5. "message"
+Description:
+- A concise, human-readable summary of the anomaly.
+
+Rules:
+- Must clearly state what happened.
+- Should explain why it is anomalous or operationally important.
+- Should mention affected component, endpoint, dependency, job, or error type when available.
+- Include counts, rates, or scope when visible and useful.
+- Keep it concise, specific, and action-oriented.
+- Do not simply copy the raw log line.
+- Do not add vague filler like "something unusual happened."
+
+Good examples:
+- "Spike in 502 responses from payments-api after upstream ledger timeouts."
+- "Auth-service generated repeated token validation failures for one tenant, suggesting clock skew or signing key mismatch."
+
+Bad examples:
+- "There was an error."
+- "Something seems wrong in the logs."
+
+6. "original_log"
+Description:
+- The raw log line or most representative original log entry that triggered the anomaly.
+
+Rules:
+- Include the most relevant source log line when one specific line clearly triggered or best represents the finding.
+- If the finding is derived from many similar logs, include the most representative one.
+- If no single original line is appropriate, use an empty string.
+- Preserve the original content as faithfully as possible.
+- Do not fabricate or rewrite the log line.
+- Keep escaping valid for JSON.
+
+Purpose:
+- This field anchors the anomaly to concrete evidence.
+- It should help a human or another LLM quickly trace the finding back to the source logs.
+
+7. "llm_investigation"
+Description:
+- The LLM’s added reasoning or synthesis about the anomaly.
+
+Rules:
+- Use this field for useful analysis, not for restating the message.
+- Include likely cause, pattern recognition, blast radius, novelty, repetition, or correlation with other services when grounded in the logs.
+- Clearly distinguish observation from inference.
+- Do not make unsupported claims.
+- If little can be inferred reliably, keep this short and factual.
+- If no meaningful extra analysis is available, use an empty string.
+
+Good content for this field:
+- "This appears to be a burst rather than an isolated failure: 47 similar timeout errors occurred within 3 minutes."
+- "Likely downstream-induced; the service began failing only after connection reset errors appeared in postgres-proxy."
+- "This error message is new compared with earlier normal startup and healthcheck logs in the same window."
+
+Bad content:
+- "This is bad."
+- "The system might be hacked" unless the logs strongly support that conclusion.
+
+8. "llm_suggested_action"
+Description:
+- The most useful immediate next step based on the anomaly.
+
+Rules:
+- Suggest practical, concrete, low-regret actions.
+- Prioritize validation, containment, mitigation, and targeted investigation.
+- Base suggestions on the evidence available in the logs.
+- Keep recommendations concise.
+- If no action is warranted beyond observation, say so briefly.
+- If the anomaly is purely informational, this may be an empty string.
+
+Good examples:
+- "Check connectivity and error rates on ledger-service and confirm whether a recent deployment coincides with the spike."
+- "Inspect pod restart reason and memory usage for this service to confirm possible OOM conditions."
+- "Monitor for recurrence; no immediate action needed unless rate increases."
+
+9. "context_for_next_llm_periodic_check"
+Description:
+- A compact memory handoff for the next periodic run of the LLM so it can compare future logs against the current anomaly landscape.
+
+Rules:
+- Always include this field, even when "logs" is empty.
+- Keep it concise but information-dense.
+- Summarize ongoing incidents, suspected causes, services to watch, and unresolved questions.
+- Include only information that would help the next run detect continuation, recovery, escalation, or recurrence.
+- Do not repeat every finding verbatim.
+- Do not include raw logs here.
+- If there are no notable findings, use a short neutral summary such as:
+  - "No meaningful anomalies detected in this period."
+- If there are active issues, mention:
+  - affected services
+  - notable error patterns
+  - time boundaries or whether the issue is ongoing
+  - what to compare against in the next run
+
+Example:
+- "Ongoing concern: payments-api and ledger-service showed timeout-related failures beginning around 2026-03-11T11:53:33Z. Watch for continued 5xx spikes, retry storms, or recovery signals. Auth-service had isolated token validation warnings but not enough evidence yet for a broader incident."
+
+Decision rules for when to create a log item:
+- Create an item when there is evidence of:
+  - repeated errors or warnings
+  - spike-like behavior
+  - crashes, panics, restarts, OOMs
+  - elevated latency or timeout bursts
+  - dependency or database instability
+  - authentication/authorization anomalies
+  - unusual or novel error messages
+  - cascading cross-service issues
+  - materially important one-off failures
+- Do not create items for:
+  - routine startup logs
+  - normal health checks
+  - isolated low-signal noise with no apparent impact
+  - repetitive duplicates that add no new information
+
+Deduplication rules:
+- If many logs describe the same issue, produce one consolidated item.
+- Prefer a representative message with a count or scope summary.
+- Separate items only when they reflect genuinely different failure modes, different services, or meaningfully different times.
+
+Inference rules:
+- Ground every finding in the logs.
+- You may infer likely cause or scope only when the evidence supports it.
+- Do not speculate beyond what the logs reasonably show.
+- If uncertain, state uncertainty inside "llm_investigation" rather than overstating confidence.
+
+Empty-result behavior:
+- If no meaningful anomalies are found, return:
+  - "logs": []
+  - "context_for_next_llm_periodic_check": "No meaningful anomalies detected in this period."
+
+Validation rules:
+- The output must parse as valid JSON.
+- All strings must be quoted.
+- Do not use comments.
+- Do not emit trailing commas.
+- Do not omit required top-level fields.
+
+Example output:
+{
+  "logs": [
+    {
+      "type": "overview",
+      "level": "error",
+      "time": "2026-03-11T11:53:33Z",
+      "message": "Cross-service error spike detected after database connectivity instability.",
+      "original_log": "2026-03-11T11:53:33Z db-proxy error connection reset by peer",
+      "llm_investigation": "Multiple services began emitting timeout and connection-failure errors within the following 2 minutes, suggesting a shared dependency issue rather than isolated service bugs.",
+      "llm_suggested_action": "Check database proxy health, connection saturation, and any deploy or infra event just before 2026-03-11T11:53:33Z."
+    },
+    {
+      "type": "payments-api",
+      "level": "error",
+      "time": "2026-03-11T11:54:02Z",
+      "message": "Repeated payment request failures caused by upstream ledger timeouts.",
+      "original_log": "2026-03-11T11:54:02Z payments-api error ledger request timed out after 3000ms",
+      "llm_investigation": "This looks sustained rather than isolated. The service appears healthy before this point, and the failures align with the broader dependency instability window.",
+      "llm_suggested_action": "Inspect ledger-service latency and timeout rate; confirm retry behavior is not amplifying the incident."
+    }
+  ],
+  "context_for_next_llm_periodic_check": "Watch for continued database-related instability affecting db-proxy, payments-api, and downstream request paths. Compare next period for recovery, ongoing timeout bursts, or spread to additional services."
+}

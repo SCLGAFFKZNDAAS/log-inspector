@@ -29,8 +29,6 @@ func QueryLoki(query LokiQuery) (LokiResponse, error) {
 	}
 	defer resp.Body.Close()
 
-	fmt.Println("Response status:", resp.Status)
-
 	var lokiResp LokiResponse
 	if err := json.NewDecoder(resp.Body).Decode(&lokiResp); err != nil {
 		return LokiResponse{}, err
