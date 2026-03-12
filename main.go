@@ -56,6 +56,7 @@ func main() {
 
 	for {
 		t0 := time.Now()
+		log.Info().Str("src", "program").Msg("Starting periodic check")
 		lastPeriodicCheckResult, err = PerformPeriodicCheck(lastPeriodicCheckResult)
 		if err != nil {
 			log.Error().Str("src", "program").Err(err).Msg("Error performing periodic check")
@@ -66,6 +67,7 @@ func main() {
 			log.Error().Str("src", "program").Msg("Periodic check took longer than the specified interval, starting next check immediately")
 			continue
 		}
+		log.Info().Str("src", "program").Dur("time_to_wait", timeToWait).Msg("Sleeping until next periodic check")
 		time.Sleep(timeToWait)
 	}
 }
@@ -89,7 +91,7 @@ func PerformPeriodicCheck(lastPeriodicCheckResult llm.FinalJSONResponse) (llm.Fi
 			logEvent = log.Info()
 		}
 
-		logEvent.Str("src", "program").
+		logEvent.Str("src", "report").
 			Str("type", logEntry.Type).
 			Str("time", logEntry.Time).
 			Str("original_log", logEntry.OriginalLog).
@@ -98,6 +100,5 @@ func PerformPeriodicCheck(lastPeriodicCheckResult llm.FinalJSONResponse) (llm.Fi
 			Msg(logEntry.Message)
 	}
 
-	log.Info().Str("src", "program").Msg("Completed periodic check, sleeping until next check...")
 	return lastPeriodicCheckResult, err
 }
